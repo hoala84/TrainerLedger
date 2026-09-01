@@ -213,8 +213,8 @@ root.addEventListener("submit", async (e) => {
   if (form.id === "payment-form") {
     const date = L.fromInputDate(form.date.value);
     const amount = L.parseMoney(form.amount.value);
-    const count = Number(form.count.value);
-    if (amount == null || amount < 0 || !count) return;
+    const count = Number.parseInt(form.count.value, 10);
+    if (amount == null || amount < 0 || !Number.isInteger(count) || count < 0) return;
     if (ui.modal.payment) L.updatePayment(state, ui.modal.payment.id, date, amount, count);
     else L.addPayment(state, ui.clientId, date, amount, count);
     closeModal();
@@ -303,7 +303,7 @@ function renderClient() {
           <div class="card-row">
             <div>
               <h3>${L.formatMoney(p.amount)}</h3>
-              <div class="meta">${L.formatDisplay(p.date)} · ${p.workoutCount} тр.${p.autoWorkoutId ? " · авто-тренировка" : ""}</div>
+              <div class="meta">${L.formatDisplay(p.date)} · ${p.workoutCount === 0 ? "без начисления занятий" : `${p.workoutCount} тр.`}${p.autoWorkoutId ? " · авто-тренировка" : ""}</div>
             </div>
             <div class="item-actions">
               <button class="linkish" data-action="edit-payment" data-id="${p.id}">Изм.</button>
@@ -395,12 +395,14 @@ function renderModal() {
   }
   if (m.type === "payment") {
     const p = m.payment;
+    const hasDebt = state.workouts.some((w) => w.clientId === ui.clientId && w.type === "DEBT");
+    const defaultCount = p ? p.workoutCount : (hasDebt ? 0 : 1);
     return `<div class="overlay"><form class="sheet" id="payment-form">
       <h3>${p ? "Оплата" : "Новая оплата"}</h3>
       <label>Дата</label><input name="date" type="date" required value="${L.toInputDate(p?.date || L.startOfDay())}">
       <label>Сумма</label><input name="amount" inputmode="decimal" required value="${p ? p.amount : ""}">
-      <label>Количество тренировок</label><input name="count" inputmode="numeric" required value="${p ? p.workoutCount : 1}">
-      <p class="meta">Если занятие одно, тренировка добавится автоматически на дату оплаты.</p>
+      <label>Количество тренировок</label><input name="count" id="payment-count" inputmode="numeric" required min="0" step="1" value="${defaultCount}">
+      <p class="meta" id="payment-count-hint">${paymentCountHint(defaultCount)}</p>
       <div class="row-btns">
         <button type="button" class="btn secondary" data-action="close-modal">Отмена</button>
         <button class="btn" type="submit">Сохранить</button>
@@ -447,6 +449,26 @@ function render() {
       await fn();
     };
   }
+  const countInput = document.getElementById("payment-count");
+  const countHint = document.getElementById("payment-count-hint");
+  if (countInput && countHint) {
+    countInput.addEventListener("input", () => {
+      const n = Number.parseInt(countInput.value, 10);
+      countHint.textContent = Number.isInteger(n) && n >= 0
+        ? paymentCountHint(n)
+        : "Укажите число занятий, можно 0.";
+    });
+  }
+}
+
+function paymentCountHint(count) {
+  if (count === 0) {
+    return "Только сумма, новое занятие не создаётся. Так закрывают оплату за тренировку, которая уже была внесена в долг.";
+  }
+  if (count === 1) {
+    return "Оплата за одну тренировку: занятие добавится автоматически на дату оплаты.";
+  }
+  return "Указанное число занятий начислится в пакет (остаток). Новая тренировка сама не появится.";
 }
 
 function esc(s) {

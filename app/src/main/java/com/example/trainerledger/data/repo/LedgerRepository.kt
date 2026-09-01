@@ -100,16 +100,17 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     suspend fun addPayment(clientId: Long, date: Long, amount: Double, workoutCount: Int) {
+        val count = workoutCount.coerceAtLeast(0)
         db.withTransaction {
             val paymentId = payments.insert(
                 PaymentEntity(
                     clientId = clientId,
                     date = DateUtils.startOfDay(date),
                     amount = amount,
-                    workoutCount = workoutCount,
+                    workoutCount = count,
                 ),
             )
-            if (workoutCount == 1) {
+            if (count == 1) {
                 val workoutId = workouts.insert(
                     WorkoutEntity(
                         clientId = clientId,
@@ -127,9 +128,10 @@ class LedgerRepository(private val db: AppDatabase) {
     suspend fun updatePayment(payment: Payment) {
         db.withTransaction {
             val day = DateUtils.startOfDay(payment.date)
+            val count = payment.workoutCount.coerceAtLeast(0)
             val existing = payments.getById(payment.id) ?: return@withTransaction
             var autoId = existing.autoWorkoutId
-            if (payment.workoutCount == 1) {
+            if (count == 1) {
                 if (autoId != null) {
                     val auto = workouts.getById(autoId)
                     if (auto != null) {
@@ -162,7 +164,7 @@ class LedgerRepository(private val db: AppDatabase) {
                 existing.copy(
                     date = day,
                     amount = payment.amount,
-                    workoutCount = payment.workoutCount,
+                    workoutCount = count,
                     autoWorkoutId = autoId,
                 ),
             )
