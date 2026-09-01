@@ -200,7 +200,7 @@ export function buildXlsx({ from, to, clients, payments, workouts, daysInRange, 
       const k = key(client.id, day);
       const parts = [];
       for (const p of payMap.get(k) || []) {
-        parts.push(`Оплата ${formatMoney(p.amount)} (${p.workoutCount} тр.)`);
+        parts.push(`Оплата ${formatMoney(p.amount)}${p.workoutCount === 0 ? " (без занятий)" : ` (${p.workoutCount} тр.)`}`);
       }
       for (const w of workMap.get(k) || []) {
         const comment = w.comment?.trim() ? `: ${w.comment.trim()}` : "";

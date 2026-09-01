@@ -70,7 +70,8 @@ object ExcelExporter {
         if (payments.isEmpty() && workouts.isEmpty()) return ""
         val parts = mutableListOf<String>()
         payments.forEach { payment ->
-            parts += "Оплата ${formatMoney(payment.amount)} (${payment.workoutCount} тр.)"
+            parts += "Оплата ${formatMoney(payment.amount)}" +
+                if (payment.workoutCount == 0) " (без занятий)" else " (${payment.workoutCount} тр.)"
         }
         workouts.forEach { workout ->
             val typeLabel = when (workout.type) {

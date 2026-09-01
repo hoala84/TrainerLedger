@@ -139,16 +139,17 @@ export function deleteClient(state, id) {
 
 export function addPayment(state, clientId, date, amount, workoutCount) {
   const day = startOfDay(date);
+  const count = Math.max(0, Number(workoutCount) || 0);
   const payment = {
     id: nextId(state.payments),
     clientId,
     date: day,
     amount,
-    workoutCount,
+    workoutCount: count,
     autoWorkoutId: null,
   };
   state.payments = [...state.payments, payment];
-  if (workoutCount === 1) {
+  if (count === 1) {
     const workout = {
       id: nextId(state.workouts),
       clientId,
@@ -166,8 +167,9 @@ export function updatePayment(state, paymentId, date, amount, workoutCount) {
   const existing = state.payments.find((p) => p.id === paymentId);
   if (!existing) return;
   const day = startOfDay(date);
+  const count = Math.max(0, Number(workoutCount) || 0);
   let autoId = existing.autoWorkoutId;
-  if (workoutCount === 1) {
+  if (count === 1) {
     if (autoId) {
       const auto = state.workouts.find((w) => w.id === autoId);
       if (auto) {
@@ -200,7 +202,7 @@ export function updatePayment(state, paymentId, date, amount, workoutCount) {
   }
   state.payments = state.payments.map((p) =>
     p.id === paymentId
-      ? { ...p, date: day, amount, workoutCount, autoWorkoutId: autoId }
+      ? { ...p, date: day, amount, workoutCount: count, autoWorkoutId: autoId }
       : p,
   );
   touch(state, existing.clientId);

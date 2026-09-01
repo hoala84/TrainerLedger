@@ -148,7 +148,7 @@ fun ClientDetailScreen(
             payments.forEach { payment ->
                 LedgerItemCard(
                     title = MoneyUtils.format(payment.amount),
-                    subtitle = "${DateUtils.formatDisplay(payment.date)} · ${payment.workoutCount} тр." +
+                    subtitle = "${DateUtils.formatDisplay(payment.date)} · ${paymentWorkoutsLabel(payment.workoutCount)}" +
                         if (payment.autoWorkoutId != null) " · авто-тренировка" else "",
                     onEdit = {
                         paymentEditor = payment
@@ -204,6 +204,8 @@ fun ClientDetailScreen(
     if (showPayment) {
         PaymentDialog(
             existing = paymentEditor,
+            initialCount = paymentEditor?.workoutCount
+                ?: if (workouts.any { it.type == WorkoutType.DEBT }) 0 else 1,
             onDismiss = { showPayment = false },
             onSave = { date, amount, count ->
                 viewModel.savePayment(paymentEditor, date, amount, count)
@@ -280,15 +282,16 @@ private fun LedgerItemCard(
 @Composable
 private fun PaymentDialog(
     existing: com.example.trainerledger.domain.model.Payment?,
+    initialCount: Int,
     onDismiss: () -> Unit,
     onSave: (Long, Double, Int) -> Unit,
 ) {
     var date by remember { mutableLongStateOf(existing?.date ?: DateUtils.startOfDay()) }
     var amount by remember { mutableStateOf(existing?.amount?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "") }
-    var count by remember { mutableStateOf(existing?.workoutCount?.toString() ?: "1") }
+    var count by remember { mutableStateOf(initialCount.toString()) }
     val amountValue = MoneyUtils.parse(amount)
     val countValue = count.toIntOrNull()
-    val valid = amountValue != null && amountValue >= 0 && countValue != null && countValue > 0
+    val valid = amountValue != null && amountValue >= 0 && countValue != null && countValue >= 0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -307,15 +310,14 @@ private fun PaymentDialog(
                     value = count,
                     onValueChange = { count = it.filter(Char::isDigit) },
                     label = { Text("Количество тренировок") },
+                    supportingText = { Text("Можно указать 0") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (countValue == 1) {
-                    Text(
-                        "Оплата за одну тренировку: занятие добавится автоматически на дату оплаты.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
+                Text(
+                    paymentCountHint(countValue),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         },
         confirmButton = {
@@ -377,6 +379,16 @@ private fun WorkoutDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
+}
+
+private fun paymentWorkoutsLabel(count: Int): String =
+    if (count == 0) "без начисления занятий" else "$count тр."
+
+private fun paymentCountHint(count: Int?): String = when {
+    count == null -> "Укажите число занятий. Можно 0."
+    count == 0 -> "Только сумма, новое занятие не создаётся. Так закрывают оплату за тренировку, которая уже была внесена в долг."
+    count == 1 -> "Оплата за одну тренировку: занятие добавится автоматически на дату оплаты."
+    else -> "Указанное число занятий начислится в пакет (остаток). Новая тренировка сама не появится."
 }
 
 private fun workoutTypeLabel(type: WorkoutType): String = when (type) {
