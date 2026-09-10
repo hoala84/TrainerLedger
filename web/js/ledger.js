@@ -73,12 +73,12 @@ export function remainingOf(payments, workouts, clientId) {
   const paid = payments
     .filter((p) => p.clientId === clientId)
     .reduce((sum, p) => sum + p.workoutCount, 0);
-  const used = workouts.filter((w) => w.clientId === clientId && w.type === "PAID").length;
+  const used = workouts.filter((w) => w.clientId === clientId && (w.type === "PAID" || w.settledByPaymentId != null)).length;
   return paid - used;
 }
 
 export function debtOf(workouts, clientId) {
-  return workouts.filter((w) => w.clientId === clientId && w.type === "DEBT").length;
+  return workouts.filter((w) => w.clientId === clientId && w.type === "DEBT" && w.settledByPaymentId == null).length;
 }
 
 function nextId(items) {
@@ -112,21 +112,42 @@ function touch(state, clientId) {
   );
 }
 
-export function addClient(state, lastName, firstName) {
+function clientDetails(state, id, lastName, firstName, details) {
+  const clean = (s) => s.trim().replace(/\s+/g, " ");
+  lastName = clean(lastName);
+  firstName = clean(firstName);
+  if (!lastName || !firstName) throw new Error("Укажите имя и фамилию");
+  if (state.clients.some((c) => c.id !== id && clean(c.lastName).toLocaleLowerCase("ru") === lastName.toLocaleLowerCase("ru") && clean(c.firstName).toLocaleLowerCase("ru") === firstName.toLocaleLowerCase("ru"))) {
+    throw new Error("Клиент с таким именем и фамилией уже существует");
+  }
+  const birthDate = details.birthDate || null;
+  if (birthDate && (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || toInputDate(fromInputDate(birthDate)) !== birthDate || birthDate > toInputDate(Date.now()))) {
+    throw new Error("Укажите корректную дату рождения, не позже сегодняшней");
+  }
+  return { lastName, firstName, phone: (details.phone || "").trim(), comment: (details.comment || "").trim(), birthDate };
+}
+
+export function ageOf(birthDate, now = Date.now()) {
+  if (!birthDate) return null;
+  const today = toInputDate(now);
+  return Number(today.slice(0, 4)) - Number(birthDate.slice(0, 4)) - (today.slice(5) < birthDate.slice(5) ? 1 : 0);
+}
+
+export function addClient(state, lastName, firstName, details = {}) {
   const client = {
     id: nextId(state.clients),
-    lastName: lastName.trim(),
-    firstName: firstName.trim(),
+    ...clientDetails(state, null, lastName, firstName, details),
     updatedAt: Date.now(),
   };
   state.clients = [...state.clients, client];
   return client.id;
 }
 
-export function updateClient(state, id, lastName, firstName) {
+export function updateClient(state, id, lastName, firstName, details = {}) {
+  const fields = clientDetails(state, id, lastName, firstName, { ...state.clients.find((c) => c.id === id), ...details });
   state.clients = state.clients.map((c) =>
     c.id === id
-      ? { ...c, lastName: lastName.trim(), firstName: firstName.trim(), updatedAt: Date.now() }
+      ? { ...c, ...fields, updatedAt: Date.now() }
       : c,
   );
 }
@@ -137,87 +158,57 @@ export function deleteClient(state, id) {
   state.workouts = state.workouts.filter((w) => w.clientId !== id);
 }
 
-export function addPayment(state, clientId, date, amount, workoutCount) {
-  const day = startOfDay(date);
-  const count = Math.max(0, Number(workoutCount) || 0);
-  const payment = {
-    id: nextId(state.payments),
-    clientId,
-    date: day,
-    amount,
-    workoutCount: count,
-    autoWorkoutId: null,
-  };
-  state.payments = [...state.payments, payment];
-  if (count === 1) {
-    const workout = {
-      id: nextId(state.workouts),
-      clientId,
-      date: day,
-      comment: "По оплате",
-      type: "PAID",
-    };
-    state.workouts = [...state.workouts, workout];
-    payment.autoWorkoutId = workout.id;
-  }
-  touch(state, clientId);
+export function settledCount(state, paymentId) {
+  return state.workouts.filter((w) => w.settledByPaymentId === paymentId).length;
 }
 
-export function updatePayment(state, paymentId, date, amount, workoutCount) {
-  const existing = state.payments.find((p) => p.id === paymentId);
-  if (!existing) return;
+function savePayment(state, existing, clientId, date, amount, count, debtCount) {
+  if (!Number.isFinite(amount) || amount < 0) throw new Error("Укажите корректную сумму");
+  if (!Number.isInteger(count) || count < 0 || !Number.isInteger(debtCount) || debtCount < 0 || debtCount > count) {
+    throw new Error("Число погашений должно быть от 0 до числа оплаченных занятий");
+  }
+  const id = existing?.id ?? nextId(state.payments);
+  const available = state.workouts.filter((w) => w.clientId === clientId && w.type === "DEBT" && (w.settledByPaymentId == null || w.settledByPaymentId === id))
+    .sort((a, b) => Number(b.settledByPaymentId === id) - Number(a.settledByPaymentId === id) || a.date - b.date || a.id - b.id);
+  if (debtCount > available.length) throw new Error("Долгов стало меньше. Проверьте количество");
+  const selected = new Set(available.slice(0, debtCount).map((w) => w.id));
+  const previouslySettled = existing ? settledCount(state, id) : 0;
   const day = startOfDay(date);
-  const count = Math.max(0, Number(workoutCount) || 0);
-  let autoId = existing.autoWorkoutId;
-  if (count === 1) {
-    if (autoId) {
-      const auto = state.workouts.find((w) => w.id === autoId);
-      if (auto) {
-        state.workouts = state.workouts.map((w) => (w.id === autoId ? { ...w, date: day } : w));
-      } else {
-        const workout = {
-          id: nextId(state.workouts),
-          clientId: existing.clientId,
-          date: day,
-          comment: "По оплате",
-          type: "PAID",
-        };
-        state.workouts = [...state.workouts, workout];
-        autoId = workout.id;
-      }
-    } else {
-      const workout = {
-        id: nextId(state.workouts),
-        clientId: existing.clientId,
-        date: day,
-        comment: "По оплате",
-        type: "PAID",
-      };
-      state.workouts = [...state.workouts, workout];
-      autoId = workout.id;
+  let autoId = state.workouts.find((w) => w.id === existing?.autoWorkoutId && w.type === "PAID")?.id ?? null;
+  state.workouts = state.workouts.map((w) => ({ ...w, settledByPaymentId: selected.has(w.id) ? id : w.settledByPaymentId === id ? null : w.settledByPaymentId ?? null }));
+  if (count === 1 && debtCount === 0) {
+    if (autoId != null) {
+      state.workouts = state.workouts.map((w) => w.id === autoId ? { ...w, date: day } : w);
+    } else if (!existing || existing.workoutCount !== 1 || previouslySettled > 0) {
+      autoId = nextId(state.workouts);
+      state.workouts.push({ id: autoId, clientId, date: day, comment: "По оплате", type: "PAID", settledByPaymentId: null });
     }
-  } else if (autoId) {
+  } else if (autoId != null) {
     state.workouts = state.workouts.filter((w) => w.id !== autoId);
     autoId = null;
   }
-  state.payments = state.payments.map((p) =>
-    p.id === paymentId
-      ? { ...p, date: day, amount, workoutCount: count, autoWorkoutId: autoId }
-      : p,
-  );
-  touch(state, existing.clientId);
+  const payment = { id, clientId, date: day, amount, workoutCount: count, autoWorkoutId: autoId };
+  state.payments = existing ? state.payments.map((p) => p.id === id ? payment : p) : [...state.payments, payment];
+  touch(state, clientId);
+}
+
+export function addPayment(state, clientId, date, amount, workoutCount, debtCount = 0) {
+  savePayment(state, null, clientId, date, amount, workoutCount, debtCount);
+}
+
+export function updatePayment(state, paymentId, date, amount, workoutCount, debtCount = settledCount(state, paymentId)) {
+  const existing = state.payments.find((p) => p.id === paymentId);
+  if (existing) savePayment(state, existing, existing.clientId, date, amount, workoutCount, debtCount);
 }
 
 export function deletePayment(state, paymentId) {
   const existing = state.payments.find((p) => p.id === paymentId);
   if (!existing) return;
-  if (existing.autoWorkoutId) {
-    state.workouts = state.workouts.filter((w) => w.id !== existing.autoWorkoutId);
-  }
+  state.workouts = state.workouts.filter((w) => !(w.id === existing.autoWorkoutId && w.type === "PAID"))
+    .map((w) => w.settledByPaymentId === paymentId ? { ...w, settledByPaymentId: null } : w);
   state.payments = state.payments.filter((p) => p.id !== paymentId);
   touch(state, existing.clientId);
 }
-
 export function addWorkout(state, clientId, date, comment, type) {
   state.workouts = [
     ...state.workouts,
@@ -235,9 +226,10 @@ export function addWorkout(state, clientId, date, comment, type) {
 export function updateWorkout(state, workoutId, date, comment, type) {
   const existing = state.workouts.find((w) => w.id === workoutId);
   if (!existing) return;
+  if (existing.type !== type) state.payments = state.payments.map((p) => p.autoWorkoutId === workoutId ? { ...p, autoWorkoutId: null } : p);
   state.workouts = state.workouts.map((w) =>
     w.id === workoutId
-      ? { ...w, date: startOfDay(date), comment: comment.trim(), type }
+      ? { ...w, date: startOfDay(date), comment: comment.trim(), type, settledByPaymentId: type === "DEBT" ? w.settledByPaymentId ?? null : null }
       : w,
   );
   touch(state, existing.clientId);
@@ -269,7 +261,7 @@ export function periodStats(state, from, to, clientId) {
       client,
       completedWorkouts: cWork.length,
       giftWorkouts: cWork.filter((w) => w.type === "GIFT").length,
-      debtWorkouts: cWork.filter((w) => w.type === "DEBT").length,
+      debtWorkouts: debtOf(cWork, client.id),
       income: cPay.reduce((sum, p) => sum + p.amount, 0),
     };
   });
@@ -308,6 +300,17 @@ export function exportBackup(state) {
 export function restoreBackup(raw) {
   if (!raw || !Array.isArray(raw.clients)) {
     throw new Error("Неверный файл копии");
+  }
+  if ((raw.payments != null && !Array.isArray(raw.payments)) || (raw.workouts != null && !Array.isArray(raw.workouts))) throw new Error("Неверный файл копии");
+  const payments = new Map((raw.payments || []).map((p) => [p.id, p]));
+  const settled = new Map();
+  for (const w of raw.workouts || []) {
+    if (w.settledByPaymentId == null) continue;
+    const p = payments.get(w.settledByPaymentId);
+    if (!p || p.clientId !== w.clientId || w.type !== "DEBT") throw new Error("Некорректная связь погашения долга");
+    const count = (settled.get(p.id) || 0) + 1;
+    if (count > p.workoutCount) throw new Error("Число погашений превышает оплату");
+    settled.set(p.id, count);
   }
   return {
     clients: raw.clients || [],

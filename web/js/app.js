@@ -120,7 +120,7 @@ root.addEventListener("click", async (e) => {
   } else if (action === "edit-payment") {
     openModal({ type: "payment", payment: state.payments.find((p) => p.id === id) });
   } else if (action === "delete-payment") {
-    openModal({ type: "confirm", title: "Удалить оплату?", text: "Автоматическая тренировка тоже удалится.", confirm: "Удалить", onYes: async () => {
+    openModal({ type: "confirm", title: "Удалить оплату?", text: "Погашенные этой оплатой долги снова станут неоплаченными. Автоматическая тренировка тоже удалится.", confirm: "Удалить", onYes: async () => {
       L.deletePayment(state, id);
       await persist();
     } });
@@ -205,18 +205,24 @@ root.addEventListener("submit", async (e) => {
   if (form.id === "client-form") {
     const last = form.lastName.value;
     const first = form.firstName.value;
-    if (ui.modal.client) L.updateClient(state, ui.modal.client.id, last, first);
-    else L.addClient(state, last, first);
+    const details = { phone: form.phone.value, comment: form.comment.value, birthDate: form.birthDate.value };
+    try {
+      if (ui.modal.client) L.updateClient(state, ui.modal.client.id, last, first, details);
+      else L.addClient(state, last, first, details);
+    } catch (error) { form.querySelector(".form-error").textContent = error.message; return; }
     closeModal();
     await persist();
   }
   if (form.id === "payment-form") {
     const date = L.fromInputDate(form.date.value);
     const amount = L.parseMoney(form.amount.value);
-    const count = Number.parseInt(form.count.value, 10);
+    const count = Number(form.count.value);
     if (amount == null || amount < 0 || !Number.isInteger(count) || count < 0) return;
-    if (ui.modal.payment) L.updatePayment(state, ui.modal.payment.id, date, amount, count);
-    else L.addPayment(state, ui.clientId, date, amount, count);
+    try {
+      const debt = Number(form.debtCount.value);
+      if (ui.modal.payment) L.updatePayment(state, ui.modal.payment.id, date, amount, count, debt);
+      else L.addPayment(state, ui.clientId, date, amount, count, debt);
+    } catch (error) { form.querySelector(".form-error").textContent = error.message; return; }
     closeModal();
     await persist();
   }
@@ -283,13 +289,17 @@ function renderClient() {
         <button class="linkish" data-action="back">← Назад</button>
         <h2>${esc(L.displayName(client))}</h2>
         <div class="sub">Осталось тренировок: ${remaining}</div>
+        <div class="sub">В долг: ${L.debtOf(state.workouts, client.id)}</div>
+        ${client.phone ? `<div class="sub">Телефон: ${esc(client.phone)}</div>` : ""}
+        ${client.birthDate ? `<div class="sub">Дата рождения: ${L.formatShort(L.fromInputDate(client.birthDate))} · Возраст: ${L.ageOf(client.birthDate)}</div>` : ""}
+        ${client.comment ? `<div class="sub">${esc(client.comment)}</div>` : ""}
       </div>
       <div class="actions">
         <button class="icon-btn" data-action="more-menu">⋯</button>
       </div>
     </header>
     ${ui.menu === "more" ? `<div class="menu">
-      <button data-action="edit-client">Изменить имя</button>
+      <button data-action="edit-client">Изменить карточку</button>
       <button data-action="delete-client">Удалить клиента</button>
     </div>` : ""}
     <div class="page">
@@ -303,6 +313,7 @@ function renderClient() {
           <div class="card-row">
             <div>
               <h3>${L.formatMoney(p.amount)}</h3>
+              ${L.settledCount(state, p.id) ? `<div class="meta">Погашено в долг: ${L.settledCount(state, p.id)}</div>` : ""}
               <div class="meta">${L.formatDisplay(p.date)} · ${p.workoutCount === 0 ? "без начисления занятий" : `${p.workoutCount} тр.`}${p.autoWorkoutId ? " · авто-тренировка" : ""}</div>
             </div>
             <div class="item-actions">
@@ -317,7 +328,7 @@ function renderClient() {
         <article class="card">
           <div class="card-row">
             <div>
-              <h3>${L.formatDisplay(w.date)} <span class="type-pill ${w.type === "GIFT" ? "gift" : w.type === "DEBT" ? "debt" : ""}">${workoutLabel(w.type)}</span></h3>
+              <h3>${L.formatDisplay(w.date)} <span class="type-pill ${w.type === "GIFT" ? "gift" : w.type === "DEBT" && w.settledByPaymentId == null ? "debt" : ""}">${w.settledByPaymentId != null ? "Была в долг · оплачена" : workoutLabel(w.type)}</span></h3>
               <div class="meta">${esc(w.comment || "Без комментария")}</div>
             </div>
             <div class="item-actions">
@@ -384,9 +395,13 @@ function renderModal() {
   if (m.type === "client") {
     const c = m.client;
     return `<div class="overlay"><form class="sheet" id="client-form">
-      <h3>${c ? "Имя клиента" : "Новый клиент"}</h3>
+      <h3>${c ? "Карточка клиента" : "Новый клиент"}</h3>
       <label>Фамилия</label><input name="lastName" required value="${esc(c?.lastName || "")}">
       <label>Имя</label><input name="firstName" required value="${esc(c?.firstName || "")}">
+      <label>Телефон</label><input name="phone" type="tel" value="${esc(c?.phone || "")}">
+      <label>Дата рождения</label><input name="birthDate" type="date" max="${L.toInputDate(Date.now())}" value="${esc(c?.birthDate || "")}">
+      <label>Комментарий</label><textarea name="comment" rows="2">${esc(c?.comment || "")}</textarea>
+      <p class="form-error" role="alert"></p>
       <div class="row-btns">
         <button type="button" class="btn secondary" data-action="close-modal">Отмена</button>
         <button class="btn" type="submit">Сохранить</button>
@@ -395,14 +410,18 @@ function renderModal() {
   }
   if (m.type === "payment") {
     const p = m.payment;
-    const hasDebt = state.workouts.some((w) => w.clientId === ui.clientId && w.type === "DEBT");
-    const defaultCount = p ? p.workoutCount : (hasDebt ? 0 : 1);
+    const debt = L.debtOf(state.workouts, ui.clientId);
+    const defaultDebt = p ? L.settledCount(state, p.id) : debt;
+    const defaultCount = p ? p.workoutCount : Math.max(1, debt);
     return `<div class="overlay"><form class="sheet" id="payment-form">
       <h3>${p ? "Оплата" : "Новая оплата"}</h3>
       <label>Дата</label><input name="date" type="date" required value="${L.toInputDate(p?.date || L.startOfDay())}">
       <label>Сумма</label><input name="amount" inputmode="decimal" required value="${p ? p.amount : ""}">
-      <label>Количество тренировок</label><input name="count" id="payment-count" inputmode="numeric" required min="0" step="1" value="${defaultCount}">
-      <p class="meta" id="payment-count-hint">${paymentCountHint(defaultCount)}</p>
+      <label>Всего оплачено занятий</label><input name="count" id="payment-count" type="number" inputmode="numeric" required min="0" step="1" value="${defaultCount}">
+      <label>Из них закрыть в долг</label><input name="debtCount" id="payment-debt" type="number" required min="0" max="${debt + (p ? defaultDebt : 0)}" step="1" value="${defaultDebt}">
+      <p class="meta">Доступно для погашения: ${debt + (p ? defaultDebt : 0)}. Сначала закрываются старые тренировки.</p>
+      <p class="meta" id="payment-count-hint">${paymentCountHint(defaultCount, defaultDebt)}</p>
+      <p class="form-error" role="alert"></p>
       <div class="row-btns">
         <button type="button" class="btn secondary" data-action="close-modal">Отмена</button>
         <button class="btn" type="submit">Сохранить</button>
@@ -452,18 +471,23 @@ function render() {
   const countInput = document.getElementById("payment-count");
   const countHint = document.getElementById("payment-count-hint");
   if (countInput && countHint) {
-    countInput.addEventListener("input", () => {
-      const n = Number.parseInt(countInput.value, 10);
+    const debtInput = document.getElementById("payment-debt");
+    const updateHint = () => {
+      const n = Number(countInput.value);
       countHint.textContent = Number.isInteger(n) && n >= 0
-        ? paymentCountHint(n)
+        ? paymentCountHint(n, Number(debtInput.value))
         : "Укажите число занятий, можно 0.";
-    });
+    };
+    countInput.addEventListener("input", updateHint);
+    debtInput.addEventListener("input", updateHint);
   }
 }
 
-function paymentCountHint(count) {
+function paymentCountHint(count, debt = 0) {
+  if (!Number.isInteger(debt) || debt < 0 || debt > count) return "Число погашений должно быть от 0 до числа оплаченных занятий.";
+  if (debt > 0) return `Погасится долгов: ${debt}. В пакет поступит: ${count - debt}. Новая тренировка не создаётся.`;
   if (count === 0) {
-    return "Только сумма, новое занятие не создаётся. Так закрывают оплату за тренировку, которая уже была внесена в долг.";
+    return "Только сумма: занятия не начисляются, долг не погашается.";
   }
   if (count === 1) {
     return "Оплата за одну тренировку: занятие добавится автоматически на дату оплаты.";
@@ -480,7 +504,13 @@ function esc(s) {
 }
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js");
+  const wasControlled = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (wasControlled && !ui.modal) location.reload();
+  });
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then((registration) => {
+    window.addEventListener("focus", () => { registration.update().catch(() => {}); });
+  }).catch(() => {});
 }
 
 loadState().then((saved) => {

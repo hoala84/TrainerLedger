@@ -1,4 +1,5 @@
-const CACHE = "trainer-ledger-v2";
+// Pages replaces this suffix with the commit SHA for every deployment.
+const CACHE = "trainer-ledger-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -16,7 +17,7 @@ const ASSETS = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE).then((cache) =>
-      Promise.all(ASSETS.map((url) => cache.add(url).catch(() => undefined))),
+      cache.addAll(ASSETS),
     ),
   );
   self.skipWaiting();
@@ -25,7 +26,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))),
+      Promise.all(keys.filter((key) => key.startsWith("trainer-ledger-") && key !== CACHE).map((key) => caches.delete(key))),
     ),
   );
   self.clients.claim();
