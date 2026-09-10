@@ -12,6 +12,10 @@ data class ClientEntity(
     val lastName: String,
     val firstName: String,
     val updatedAt: Long,
+    val comment: String = "",
+    /** Дата рождения: yyyy-MM-dd, без часового пояса. */
+    val birthDate: String? = null,
+    val phone: String = "",
 )
 
 /** Таблица оплат */
@@ -56,4 +60,5 @@ data class WorkoutEntity(
     val comment: String,
     /** Хранится как строка enum WorkoutType */
     val type: String,
+    val settledByPaymentId: Long? = null,
 )

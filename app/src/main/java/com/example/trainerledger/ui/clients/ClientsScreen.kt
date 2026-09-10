@@ -15,7 +15,7 @@ import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material3.AlertDialog
+import com.example.trainerledger.ui.components.ClientDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -26,10 +26,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -139,15 +137,10 @@ fun ClientsScreen(
     }
 
     if (showAdd) {
-        ClientNameDialog(
+        ClientDialog(
             title = "Новый клиент",
-            initialLastName = "",
-            initialFirstName = "",
             onDismiss = { showAdd = false },
-            onConfirm = { last, first ->
-                viewModel.addClient(last, first)
-                showAdd = false
-            },
+            onSave = viewModel::saveClient,
         )
     }
 }
@@ -183,47 +176,4 @@ private fun ClientCard(row: ClientRow, onClick: () -> Unit) {
             )
         }
     }
-}
-
-@Composable
-fun ClientNameDialog(
-    title: String,
-    initialLastName: String,
-    initialFirstName: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit,
-) {
-    var lastName by remember { mutableStateOf(initialLastName) }
-    var firstName by remember { mutableStateOf(initialFirstName) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = lastName,
-                    onValueChange = { lastName = it },
-                    label = { Text("Фамилия") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = firstName,
-                    onValueChange = { firstName = it },
-                    label = { Text("Имя") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = lastName.isNotBlank() && firstName.isNotBlank(),
-                onClick = { onConfirm(lastName, firstName) },
-            ) { Text("Сохранить") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Отмена") }
-        },
-    )
 }

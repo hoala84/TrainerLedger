@@ -13,7 +13,7 @@ import com.example.trainerledger.data.entity.WorkoutEntity
 
 @Database(
     entities = [ClientEntity::class, PaymentEntity::class, WorkoutEntity::class],
-    version = 1,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,7 +26,18 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun create(context: Context): AppDatabase {
             return Room.databaseBuilder(context, AppDatabase::class.java, NAME)
-                .fallbackToDestructiveMigration()
+                .addMigrations(object : androidx.room.migration.Migration(1, 2) {
+                    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        db.execSQL("ALTER TABLE clients ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+                        db.execSQL("ALTER TABLE clients ADD COLUMN birthDate TEXT")
+                        db.execSQL("ALTER TABLE clients ADD COLUMN phone TEXT NOT NULL DEFAULT ''")
+                    }
+                })
+                .addMigrations(object : androidx.room.migration.Migration(2, 3) {
+                    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        db.execSQL("ALTER TABLE workouts ADD COLUMN settledByPaymentId INTEGER")
+                    }
+                })
                 .build()
         }
     }

@@ -76,7 +76,7 @@ object ExcelExporter {
         workouts.forEach { workout ->
             val typeLabel = when (workout.type) {
                 WorkoutType.PAID -> "тренировка"
-                WorkoutType.DEBT -> "в долг"
+                WorkoutType.DEBT -> if (workout.settledByPaymentId == null) "в долг" else "была в долг · оплачена"
                 WorkoutType.GIFT -> "подарок"
             }
             val comment = workout.comment.trim().takeIf { it.isNotEmpty() }?.let { ": $it" } ?: ""
