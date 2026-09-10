@@ -43,7 +43,7 @@ class LedgerRepository(private val db: AppDatabase) {
                 ClientRow(
                     client = entity.toDomain(),
                     remainingWorkouts = remaining(clientPayments, clientWorkouts),
-                    debtWorkouts = clientWorkouts.count { it.type == WorkoutType.DEBT.name },
+                    debtWorkouts = clientWorkouts.count { it.type == WorkoutType.DEBT.name && it.settledByPaymentId == null },
                 )
             }
             when (order) {
@@ -81,102 +81,86 @@ class LedgerRepository(private val db: AppDatabase) {
         workouts.observeByClient(clientId),
     ) { paymentList, workoutList -> remaining(paymentList, workoutList) }
 
-    suspend fun addClient(lastName: String, firstName: String): Long {
-        return clients.insert(
-            ClientEntity(
-                lastName = lastName.trim(),
-                firstName = firstName.trim(),
-                updatedAt = System.currentTimeMillis(),
-            ),
+    suspend fun saveClient(client: Client) {
+        val cleaned = client.copy(
+            lastName = client.lastName.trim().replace(Regex("\\s+"), " "),
+            firstName = client.firstName.trim().replace(Regex("\\s+"), " "),
+            comment = client.comment.trim(), phone = client.phone.trim(),
+            updatedAt = System.currentTimeMillis(),
         )
-    }
-
-    suspend fun updateClient(client: Client) {
-        clients.update(client.copy(updatedAt = System.currentTimeMillis()).toEntity())
+        require(cleaned.lastName.isNotBlank() && cleaned.firstName.isNotBlank()) { "Укажите имя и фамилию" }
+        require(cleaned.birthDate == null || com.example.trainerledger.util.ClientDetails.isValidBirthDate(cleaned.birthDate)) {
+            "Укажите корректную дату рождения, не позднее сегодняшней"
+        }
+        db.withTransaction {
+            val existing = clients.getAll()
+            val original = existing.find { it.id == cleaned.id }
+            val key = com.example.trainerledger.util.ClientDetails.nameKey(cleaned.lastName, cleaned.firstName)
+            val nameChanged = original == null ||
+                com.example.trainerledger.util.ClientDetails.nameKey(original.lastName, original.firstName) != key
+            require(!nameChanged || existing.none {
+                it.id != cleaned.id && com.example.trainerledger.util.ClientDetails.nameKey(it.lastName, it.firstName) == key
+            }) { "Клиент с таким именем и фамилией уже существует" }
+            if (cleaned.id == 0L) clients.insert(cleaned.toEntity()) else clients.update(cleaned.toEntity())
+        }
     }
 
     suspend fun deleteClient(client: Client) {
         clients.delete(client.toEntity())
     }
 
-    suspend fun addPayment(clientId: Long, date: Long, amount: Double, workoutCount: Int) {
-        val count = workoutCount.coerceAtLeast(0)
+    suspend fun savePayment(payment: Payment, debtCount: Int) {
+        require(payment.amount.isFinite() && payment.amount >= 0) { "Укажите корректную сумму" }
         db.withTransaction {
-            val paymentId = payments.insert(
-                PaymentEntity(
-                    clientId = clientId,
-                    date = DateUtils.startOfDay(date),
-                    amount = amount,
-                    workoutCount = count,
-                ),
-            )
-            if (count == 1) {
-                val workoutId = workouts.insert(
-                    WorkoutEntity(
-                        clientId = clientId,
-                        date = DateUtils.startOfDay(date),
-                        comment = "По оплате",
-                        type = WorkoutType.PAID.name,
-                    ),
-                )
-                payments.setAutoWorkoutId(paymentId, workoutId)
-            }
-            clients.touch(clientId, System.currentTimeMillis())
-        }
-    }
-
-    suspend fun updatePayment(payment: Payment) {
-        db.withTransaction {
+            val existing = if (payment.id == 0L) null else
+                requireNotNull(payments.getById(payment.id)) { "Оплата уже удалена" }
+            require(existing == null || existing.clientId == payment.clientId) { "Нельзя перенести оплату другому клиенту" }
+            val all = workouts.getAll().filter { it.clientId == payment.clientId }
+            val selected = com.example.trainerledger.domain.model.DebtAccounting.selectDebts(
+                all.map { it.toDomain() }, payment.id, payment.workoutCount, debtCount,
+            ).toSet()
             val day = DateUtils.startOfDay(payment.date)
-            val count = payment.workoutCount.coerceAtLeast(0)
-            val existing = payments.getById(payment.id) ?: return@withTransaction
-            var autoId = existing.autoWorkoutId
-            if (count == 1) {
-                if (autoId != null) {
-                    val auto = workouts.getById(autoId)
-                    if (auto != null) {
-                        workouts.update(auto.copy(date = day))
-                    } else {
-                        autoId = workouts.insert(
-                            WorkoutEntity(
-                                clientId = payment.clientId,
-                                date = day,
-                                comment = "По оплате",
-                                type = WorkoutType.PAID.name,
-                            ),
-                        )
-                    }
-                } else {
-                    autoId = workouts.insert(
-                        WorkoutEntity(
-                            clientId = payment.clientId,
-                            date = day,
-                            comment = "По оплате",
-                            type = WorkoutType.PAID.name,
-                        ),
-                    )
+            var saved = payment.copy(date = day, autoWorkoutId = existing?.autoWorkoutId).toEntity()
+            if (existing == null) saved = saved.copy(id = payments.insert(saved))
+            all.forEach { workout ->
+                val linked = when {
+                    workout.id in selected -> saved.id
+                    workout.settledByPaymentId == saved.id -> null
+                    else -> workout.settledByPaymentId
+                }
+                if (linked != workout.settledByPaymentId) workouts.update(workout.copy(settledByPaymentId = linked))
+            }
+            var autoId = saved.autoWorkoutId?.takeIf { id ->
+                all.any { it.id == id && it.type == WorkoutType.PAID.name }
+            }
+            if (payment.workoutCount == 1 && debtCount == 0) {
+                val auto = autoId?.let { workouts.getById(it) }
+                if (auto != null) workouts.update(auto.copy(date = day))
+                else if (existing == null || existing.workoutCount != 1 ||
+                    all.any { it.settledByPaymentId == existing.id }) {
+                    autoId = workouts.insert(WorkoutEntity(clientId = payment.clientId, date = day,
+                        comment = "По оплате", type = WorkoutType.PAID.name))
                 }
             } else if (autoId != null) {
                 workouts.deleteById(autoId)
                 autoId = null
             }
-            payments.update(
-                existing.copy(
-                    date = day,
-                    amount = payment.amount,
-                    workoutCount = count,
-                    autoWorkoutId = autoId,
-                ),
-            )
+            payments.update(saved.copy(autoWorkoutId = autoId))
             clients.touch(payment.clientId, System.currentTimeMillis())
         }
     }
 
     suspend fun deletePayment(payment: Payment) {
         db.withTransaction {
-            payment.autoWorkoutId?.let { workouts.deleteById(it) }
-            payments.delete(payment.toEntity())
-            clients.touch(payment.clientId, System.currentTimeMillis())
+            val current = payments.getById(payment.id) ?: return@withTransaction
+            workouts.getAll().filter { it.settledByPaymentId == current.id }.forEach {
+                workouts.update(it.copy(settledByPaymentId = null))
+            }
+            current.autoWorkoutId?.let { id ->
+                if (workouts.getById(id)?.type == WorkoutType.PAID.name) workouts.deleteById(id)
+            }
+            payments.delete(current)
+            clients.touch(current.clientId, System.currentTimeMillis())
         }
     }
 
@@ -193,8 +177,13 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     suspend fun updateWorkout(workout: Workout) {
-        workouts.update(workout.copy(date = DateUtils.startOfDay(workout.date), comment = workout.comment.trim()).toEntity())
-        clients.touch(workout.clientId, System.currentTimeMillis())
+        db.withTransaction {
+            val current = workouts.getById(workout.id) ?: return@withTransaction
+            if (current.type != workout.type.name) payments.clearAutoWorkout(workout.id)
+            workouts.update(workout.copy(date = DateUtils.startOfDay(workout.date), comment = workout.comment.trim(),
+                settledByPaymentId = if (workout.type == WorkoutType.DEBT) current.settledByPaymentId else null).toEntity())
+            clients.touch(workout.clientId, System.currentTimeMillis())
+        }
     }
 
     suspend fun deleteWorkout(workout: Workout) {
@@ -220,7 +209,7 @@ class LedgerRepository(private val db: AppDatabase) {
                 client = client,
                 completedWorkouts = cWorkouts.size,
                 giftWorkouts = cWorkouts.count { it.type == WorkoutType.GIFT },
-                debtWorkouts = cWorkouts.count { it.type == WorkoutType.DEBT },
+                debtWorkouts = cWorkouts.count { it.type == WorkoutType.DEBT && it.settledByPaymentId == null },
                 income = cPayments.sumOf { it.amount },
             )
         }
@@ -233,34 +222,44 @@ class LedgerRepository(private val db: AppDatabase) {
         )
     }
 
-    suspend fun exportSnapshot(): BackupFile {
-        return BackupFile(
+    suspend fun exportSnapshot(): BackupFile = db.withTransaction {
+        BackupFile(
             exportedAt = System.currentTimeMillis(),
             clients = clients.getAll().map {
-                ClientBackup(it.id, it.lastName, it.firstName, it.updatedAt)
+                ClientBackup(it.id, it.lastName, it.firstName, it.updatedAt, it.comment, it.birthDate, it.phone)
             },
             payments = payments.getAll().map {
                 PaymentBackup(it.id, it.clientId, it.date, it.amount, it.workoutCount, it.autoWorkoutId)
             },
             workouts = workouts.getAll().map {
-                WorkoutBackup(it.id, it.clientId, it.date, it.comment, it.type)
+                WorkoutBackup(it.id, it.clientId, it.date, it.comment, it.type, it.settledByPaymentId)
             },
         )
     }
 
     suspend fun restore(backup: BackupFile) {
+        val paymentMap = backup.payments.associateBy { it.id }
+        backup.workouts.filter { it.settledByPaymentId != null }.forEach {
+            val payment = paymentMap[it.settledByPaymentId]
+            require(payment != null && payment.clientId == it.clientId && it.type == WorkoutType.DEBT.name) {
+                "Некорректная связь погашения долга в резервной копии"
+            }
+        }
+        backup.workouts.filter { it.settledByPaymentId != null }.groupBy { it.settledByPaymentId }.forEach { (id, debts) ->
+            require(debts.size <= paymentMap.getValue(id!!).workoutCount) { "Число погашений превышает оплату" }
+        }
         db.withTransaction {
             workouts.deleteAll()
             payments.deleteAll()
             clients.deleteAll()
             clients.upsertAll(
                 backup.clients.map {
-                    ClientEntity(it.id, it.lastName, it.firstName, it.updatedAt)
+                    ClientEntity(it.id, it.lastName, it.firstName, it.updatedAt, it.comment, it.birthDate, it.phone)
                 },
             )
             workouts.upsertAll(
                 backup.workouts.map {
-                    WorkoutEntity(it.id, it.clientId, it.date, it.comment, it.type)
+                    WorkoutEntity(it.id, it.clientId, it.date, it.comment, it.type, it.settledByPaymentId)
                 },
             )
             payments.upsertAll(
@@ -282,9 +281,9 @@ class LedgerRepository(private val db: AppDatabase) {
     }
 
     private fun remaining(paymentList: List<PaymentEntity>, workoutList: List<WorkoutEntity>): Int {
-        val paid = paymentList.sumOf { it.workoutCount }
-        val used = workoutList.count { it.type == WorkoutType.PAID.name }
-        return paid - used
+        return com.example.trainerledger.domain.model.DebtAccounting.remaining(
+            paymentList.map { it.toDomain() }, workoutList.map { it.toDomain() },
+        )
     }
 }
 

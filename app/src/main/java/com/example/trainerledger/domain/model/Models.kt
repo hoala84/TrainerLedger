@@ -29,6 +29,10 @@ data class Client(
     val lastName: String,
     val firstName: String,
     val updatedAt: Long = System.currentTimeMillis(),
+    val comment: String = "",
+    /** Дата рождения: yyyy-MM-dd, без часового пояса. */
+    val birthDate: String? = null,
+    val phone: String = "",
 ) {
     /** Отображаемое имя: фамилия, затем имя */
     val displayName: String get() = "$lastName $firstName"
@@ -52,6 +56,7 @@ data class Workout(
     val date: Long,
     val comment: String = "",
     val type: WorkoutType = WorkoutType.PAID,
+    val settledByPaymentId: Long? = null,
 )
 
 /** Сводка по клиенту за период */

@@ -11,9 +11,9 @@ import com.example.trainerledger.domain.model.WorkoutType
 /** Преобразование между Room-сущностями и доменными моделями */
 object EntityMappers {
 
-    fun ClientEntity.toDomain() = Client(id, lastName, firstName, updatedAt)
+    fun ClientEntity.toDomain() = Client(id, lastName, firstName, updatedAt, comment, birthDate, phone)
 
-    fun Client.toEntity() = ClientEntity(id, lastName, firstName, updatedAt)
+    fun Client.toEntity() = ClientEntity(id, lastName, firstName, updatedAt, comment, birthDate, phone)
 
     fun PaymentEntity.toDomain() = Payment(id, clientId, date, amount, workoutCount, autoWorkoutId)
 
@@ -25,7 +25,8 @@ object EntityMappers {
         date = date,
         comment = comment,
         type = WorkoutType.valueOf(type),
+        settledByPaymentId = settledByPaymentId,
     )
 
-    fun Workout.toEntity() = WorkoutEntity(id, clientId, date, comment, type.name)
+    fun Workout.toEntity() = WorkoutEntity(id, clientId, date, comment, type.name, settledByPaymentId)
 }

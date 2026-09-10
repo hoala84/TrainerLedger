@@ -33,11 +33,8 @@ class ClientDetailViewModel(
     val workouts: StateFlow<List<Workout>> = repo.observeWorkouts(clientId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun updateName(lastName: String, firstName: String) {
-        val current = client.value ?: return
-        viewModelScope.launch {
-            repo.updateClient(current.copy(lastName = lastName.trim(), firstName = firstName.trim()))
-        }
+    suspend fun saveClient(client: Client) {
+        repo.saveClient(client)
     }
 
     fun deleteClient(onDone: () -> Unit) {
@@ -48,16 +45,11 @@ class ClientDetailViewModel(
         }
     }
 
-    fun savePayment(existing: Payment?, date: Long, amount: Double, workoutCount: Int) {
-        viewModelScope.launch {
-            if (existing == null) {
-                repo.addPayment(clientId, date, amount, workoutCount)
-            } else {
-                repo.updatePayment(
-                    existing.copy(date = date, amount = amount, workoutCount = workoutCount),
-                )
-            }
-        }
+    suspend fun savePayment(existing: Payment?, date: Long, amount: Double, workoutCount: Int, debtCount: Int) {
+        repo.savePayment(
+            (existing ?: Payment(clientId = clientId, date = date, amount = amount, workoutCount = workoutCount))
+                .copy(date = date, amount = amount, workoutCount = workoutCount), debtCount,
+        )
     }
 
     fun deletePayment(payment: Payment) {

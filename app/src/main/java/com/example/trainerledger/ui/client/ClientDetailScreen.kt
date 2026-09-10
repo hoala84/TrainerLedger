@@ -48,7 +48,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.trainerledger.domain.model.Payment
 import com.example.trainerledger.domain.model.Workout
 import com.example.trainerledger.domain.model.WorkoutType
-import com.example.trainerledger.ui.clients.ClientNameDialog
+import com.example.trainerledger.ui.components.PaymentDialog
+import com.example.trainerledger.ui.components.ClientDialog
+import com.example.trainerledger.util.ClientDetails
 import com.example.trainerledger.ui.components.ConfirmDialog
 import com.example.trainerledger.ui.components.DateField
 import com.example.trainerledger.util.DateUtils
@@ -98,7 +100,7 @@ fun ClientDetailScreen(
                     }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
-                            text = { Text("Изменить имя") },
+                            text = { Text("Изменить карточку") },
                             onClick = {
                                 menu = false
                                 editName = true
@@ -124,6 +126,17 @@ fun ClientDetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            client?.let { details ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Телефон: " + details.phone.ifBlank { "не указан" })
+                        Text("Дата рождения: " + (details.birthDate?.let {
+                            "${ClientDetails.display(it)} (${ClientDetails.ageLabel(it)})"
+                        } ?: "не указана"))
+                        Text("Комментарии: " + details.comment.ifBlank { "не указаны" })
+                    }
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
@@ -141,6 +154,7 @@ fun ClientDetailScreen(
                 ) { Text("Тренировка") }
             }
 
+            Text("Текущий долг: ${workouts.count { it.type == WorkoutType.DEBT && it.settledByPaymentId == null }} тр.")
             Text("Оплаты", style = MaterialTheme.typography.titleMedium)
             if (payments.isEmpty()) {
                 Text("Пока нет оплат", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
@@ -149,7 +163,8 @@ fun ClientDetailScreen(
                 LedgerItemCard(
                     title = MoneyUtils.format(payment.amount),
                     subtitle = "${DateUtils.formatDisplay(payment.date)} · ${paymentWorkoutsLabel(payment.workoutCount)}" +
-                        if (payment.autoWorkoutId != null) " · авто-тренировка" else "",
+                        (if (payment.autoWorkoutId != null) " · авто-тренировка" else "") +
+                        " · закрыто долгов: ${workouts.count { it.settledByPaymentId == payment.id }}",
                     onEdit = {
                         paymentEditor = payment
                         showPayment = true
@@ -166,8 +181,9 @@ fun ClientDetailScreen(
             workouts.forEach { workout ->
                 LedgerItemCard(
                     title = DateUtils.formatDisplay(workout.date),
-                    subtitle = workout.comment.ifBlank { "Без комментария" },
-                    chip = workout.type,
+                    subtitle = workout.comment.ifBlank { "Без комментария" } +
+                        if (workout.settledByPaymentId != null) " · Была в долг · оплачена" else "",
+                    chip = if (workout.settledByPaymentId != null) null else workout.type,
                     onEdit = {
                         workoutEditor = workout
                         showWorkout = true
@@ -179,15 +195,11 @@ fun ClientDetailScreen(
     }
 
     if (editName && client != null) {
-        ClientNameDialog(
-            title = "Имя клиента",
-            initialLastName = client!!.lastName,
-            initialFirstName = client!!.firstName,
+        ClientDialog(
+            title = "Карточка клиента",
+            initial = client!!,
             onDismiss = { editName = false },
-            onConfirm = { last, first ->
-                viewModel.updateName(last, first)
-                editName = false
-            },
+            onSave = viewModel::saveClient,
         )
     }
     if (deleteClient) {
@@ -204,12 +216,10 @@ fun ClientDetailScreen(
     if (showPayment) {
         PaymentDialog(
             existing = paymentEditor,
-            initialCount = paymentEditor?.workoutCount
-                ?: if (workouts.any { it.type == WorkoutType.DEBT }) 0 else 1,
+            workouts = workouts,
             onDismiss = { showPayment = false },
-            onSave = { date, amount, count ->
-                viewModel.savePayment(paymentEditor, date, amount, count)
-                showPayment = false
+            onSave = { date, amount, count, debtCount ->
+                viewModel.savePayment(paymentEditor, date, amount, count, debtCount)
             },
         )
     }
@@ -226,7 +236,7 @@ fun ClientDetailScreen(
     pendingDeletePayment?.let { payment ->
         ConfirmDialog(
             title = "Удалить оплату?",
-            text = "Если занятие было создано автоматически, оно тоже удалится.",
+            text = "Закрытые этой оплатой долги восстановятся. Автоматически созданное занятие удалится.",
             onConfirm = {
                 viewModel.deletePayment(payment)
                 pendingDeletePayment = null
@@ -277,57 +287,6 @@ private fun LedgerItemCard(
             }
         }
     }
-}
-
-@Composable
-private fun PaymentDialog(
-    existing: com.example.trainerledger.domain.model.Payment?,
-    initialCount: Int,
-    onDismiss: () -> Unit,
-    onSave: (Long, Double, Int) -> Unit,
-) {
-    var date by remember { mutableLongStateOf(existing?.date ?: DateUtils.startOfDay()) }
-    var amount by remember { mutableStateOf(existing?.amount?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "") }
-    var count by remember { mutableStateOf(initialCount.toString()) }
-    val amountValue = MoneyUtils.parse(amount)
-    val countValue = count.toIntOrNull()
-    val valid = amountValue != null && amountValue >= 0 && countValue != null && countValue >= 0
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "Новая оплата" else "Оплата") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                DateField(label = "Дата", dateMillis = date, onDateChange = { date = it })
-                OutlinedTextField(
-                    value = amount,
-                    onValueChange = { amount = it },
-                    label = { Text("Сумма") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = count,
-                    onValueChange = { count = it.filter(Char::isDigit) },
-                    label = { Text("Количество тренировок") },
-                    supportingText = { Text("Можно указать 0") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    paymentCountHint(countValue),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = valid,
-                onClick = { onSave(date, amountValue!!, countValue!!) },
-            ) { Text("Сохранить") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
 }
 
 @Composable
@@ -383,13 +342,6 @@ private fun WorkoutDialog(
 
 private fun paymentWorkoutsLabel(count: Int): String =
     if (count == 0) "без начисления занятий" else "$count тр."
-
-private fun paymentCountHint(count: Int?): String = when {
-    count == null -> "Укажите число занятий. Можно 0."
-    count == 0 -> "Только сумма, новое занятие не создаётся. Так закрывают оплату за тренировку, которая уже была внесена в долг."
-    count == 1 -> "Оплата за одну тренировку: занятие добавится автоматически на дату оплаты."
-    else -> "Указанное число занятий начислится в пакет (остаток). Новая тренировка сама не появится."
-}
 
 private fun workoutTypeLabel(type: WorkoutType): String = when (type) {
     WorkoutType.PAID -> "Оплаченная"

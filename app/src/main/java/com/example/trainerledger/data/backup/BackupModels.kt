@@ -17,6 +17,10 @@ data class ClientBackup(
     val lastName: String,
     val firstName: String,
     val updatedAt: Long,
+    val comment: String = "",
+    /** Дата рождения: yyyy-MM-dd, без часового пояса. */
+    val birthDate: String? = null,
+    val phone: String = "",
 )
 
 @Serializable
@@ -36,4 +40,5 @@ data class WorkoutBackup(
     val date: Long,
     val comment: String,
     val type: String,
+    val settledByPaymentId: Long? = null,
 )

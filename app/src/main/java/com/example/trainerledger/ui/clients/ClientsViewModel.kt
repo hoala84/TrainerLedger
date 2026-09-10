@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 class ClientsViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = (application as TrainerApplication).repository
@@ -24,9 +23,7 @@ class ClientsViewModel(application: Application) : AndroidViewModel(application)
         sortOrder.value = order
     }
 
-    fun addClient(lastName: String, firstName: String) {
-        viewModelScope.launch {
-            repo.addClient(lastName, firstName)
-        }
+    suspend fun saveClient(client: com.example.trainerledger.domain.model.Client) {
+        repo.saveClient(client)
     }
 }
