@@ -204,7 +204,7 @@ export function buildXlsx({ from, to, clients, payments, workouts, daysInRange, 
       }
       for (const w of workMap.get(k) || []) {
         const comment = w.comment?.trim() ? `: ${w.comment.trim()}` : "";
-        parts.push(`${typeLabel(w.type)}${comment}`);
+        parts.push(`${w.settledByPaymentId != null ? "была в долг · оплачена" : typeLabel(w.type)}${comment}`);
       }
       row.push(parts.join("\n"));
     }
