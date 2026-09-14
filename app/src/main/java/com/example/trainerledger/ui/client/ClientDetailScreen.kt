@@ -49,6 +49,7 @@ import com.example.trainerledger.domain.model.Payment
 import com.example.trainerledger.domain.model.Workout
 import com.example.trainerledger.domain.model.WorkoutType
 import com.example.trainerledger.ui.components.PaymentDialog
+import com.example.trainerledger.ui.components.WorkoutDialog
 import com.example.trainerledger.ui.components.ClientDialog
 import com.example.trainerledger.util.ClientDetails
 import com.example.trainerledger.ui.components.ConfirmDialog
@@ -290,7 +291,7 @@ private fun LedgerItemCard(
 }
 
 @Composable
-private fun WorkoutDialog(
+private fun LegacyWorkoutDialog(
     existing: Workout?,
     onDismiss: () -> Unit,
     onSave: (Long, String, WorkoutType) -> Unit,
