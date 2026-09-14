@@ -3,8 +3,10 @@ import { buildXlsx } from "./xlsx.js";
 import * as L from "./ledger.js";
 
 const root = document.getElementById("app");
+// Заглушка готова на всех экранах, но не попадает в интерфейс до подключения отправки отзывов.
+const FEEDBACK_ENABLED = false;
 const ui = {
-  tab: "clients",
+  tab: "today",
   clientId: null,
   sort: L.SORT.BY_UPDATED,
   statsFrom: L.startOfMonth(),
@@ -14,6 +16,8 @@ const ui = {
   menu: null,
   toast: "",
   iosHint: shouldShowIosHint(),
+  clientQuery: "",
+  quickAction: null,
 };
 
 let state = { clients: [], payments: [], workouts: [] };
@@ -117,6 +121,15 @@ root.addEventListener("click", async (e) => {
     } });
   } else if (action === "add-payment") {
     openModal({ type: "payment" });
+  } else if (action === "quick-payment" || action === "quick-workout") {
+    ui.quickAction = action === "quick-payment" ? "payment" : "workout";
+    ui.clientQuery = "";
+    openModal({ type: "client-picker" });
+  } else if (action === "select-quick-client") {
+    ui.clientId = id;
+    openModal({ type: ui.quickAction });
+  } else if (action === "feedback") {
+    openModal({ type: "feedback" });
   } else if (action === "edit-payment") {
     openModal({ type: "payment", payment: state.payments.find((p) => p.id === id) });
   } else if (action === "delete-payment") {
@@ -224,6 +237,8 @@ root.addEventListener("submit", async (e) => {
       else L.addPayment(state, ui.clientId, date, amount, count, debt);
     } catch (error) { form.querySelector(".form-error").textContent = error.message; return; }
     closeModal();
+    ui.quickAction = null;
+    ui.clientQuery = "";
     await persist();
   }
   if (form.id === "workout-form") {
@@ -233,12 +248,24 @@ root.addEventListener("submit", async (e) => {
     if (ui.modal.workout) L.updateWorkout(state, ui.modal.workout.id, date, comment, type);
     else L.addWorkout(state, ui.clientId, date, comment, type);
     closeModal();
+    ui.quickAction = null;
+    ui.clientQuery = "";
     await persist();
   }
 });
 
+root.addEventListener("input", (e) => {
+  if (e.target.id !== "client-search") return;
+  ui.clientQuery = e.target.value;
+  render();
+  const input = document.getElementById("client-search");
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+});
+
 function renderList() {
-  const rows = L.sortClients(state.clients, state.payments, state.workouts, ui.sort);
+  const query = ui.clientQuery.trim().toLocaleLowerCase("ru");
+  const rows = L.sortClients(state.clients, state.payments, state.workouts, ui.sort)
+    .filter((row) => !query || L.displayName(row.client).toLocaleLowerCase("ru").includes(query));
   return `
     <header class="top">
       <div>
@@ -261,7 +288,8 @@ function renderList() {
     </div>` : ""}
     <div class="page">
       ${ui.iosHint ? `<div class="hint">На iPhone: «Поделиться» → «На экран Домой» — журнал будет как приложение и без интернета. <button class="linkish" data-action="hide-hint">Скрыть</button></div>` : ""}
-      ${rows.length === 0 ? `<div class="empty">Пока нет клиентов.<br>Добавьте первого кнопкой «+» или загрузите пример.</div>` : rows.map((row) => `
+      <div class="search"><input id="client-search" type="search" placeholder="Поиск по фамилии и имени" value="${esc(ui.clientQuery)}"></div>
+      ${rows.length === 0 ? `<div class="empty">${state.clients.length ? "Клиенты не найдены." : "Пока нет клиентов.<br>Добавьте первого кнопкой «+» или загрузите пример."}</div>` : rows.map((row) => `
         <article class="card" data-action="open-client" data-id="${row.client.id}">
           <div class="card-row">
             <div>
@@ -408,6 +436,21 @@ function renderModal() {
       </div>
     </form></div>`;
   }
+  if (m.type === "client-picker") {
+    const query = ui.clientQuery.trim().toLocaleLowerCase("ru");
+    const clients = [...state.clients]
+      .sort((a, b) => L.displayName(a).localeCompare(L.displayName(b), "ru"))
+      .filter((c) => !query || L.displayName(c).toLocaleLowerCase("ru").includes(query));
+    return `<div class="overlay"><div class="sheet"><h3>Выберите клиента</h3>
+      <input id="client-search" type="search" placeholder="Фамилия или имя" value="${esc(ui.clientQuery)}">
+      <div class="picker-list">${clients.length ? clients.map((c) => `<button class="picker-client" data-action="select-quick-client" data-id="${c.id}">${esc(L.displayName(c))}</button>`).join("") : `<p class="meta">Клиенты не найдены</p>`}</div>
+      <button class="btn secondary" data-action="close-modal">Отмена</button></div></div>`;
+  }
+  if (m.type === "feedback") {
+    return `<div class="overlay"><div class="sheet"><h3>Обратная связь</h3>
+      <p>Здесь можно будет оставить отзыв или сообщить о проблеме.</p>
+      <button class="btn" data-action="close-modal">Понятно</button></div></div>`;
+  }
   if (m.type === "payment") {
     const p = m.payment;
     const debt = L.debtOf(state.workouts, ui.clientId);
@@ -449,16 +492,18 @@ function renderModal() {
 
 function render() {
   const showNav = ui.tab !== "client";
-  const body = ui.tab === "stats" ? renderStats() : ui.tab === "client" ? renderClient() : renderList();
+  const body = ui.tab === "today" ? renderToday() : ui.tab === "stats" ? renderStats() : ui.tab === "client" ? renderClient() : renderList();
   root.innerHTML = `
     ${body}
     ${showNav ? `<nav class="nav">
+      <button data-action="tab" data-tab="today" class="${ui.tab === "today" ? "active" : ""}">Сегодня</button>
       <button data-action="tab" data-tab="clients" class="${ui.tab === "clients" ? "active" : ""}">Клиенты</button>
       <button data-action="tab" data-tab="stats" class="${ui.tab === "stats" ? "active" : ""}">Статистика</button>
     </nav>` : ""}
     <input id="file-import" type="file" accept="application/json,.json" hidden>
     ${renderModal()}
     ${ui.toast ? `<div class="toast">${esc(ui.toast)}</div>` : ""}
+    ${FEEDBACK_ENABLED ? `<button class="feedback-placeholder btn" data-action="feedback">Обратная связь</button>` : ""}
   `;
   const yes = document.getElementById("confirm-yes");
   if (yes && ui.modal?.onYes) {
@@ -511,6 +556,24 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then((registration) => {
     window.addEventListener("focus", () => { registration.update().catch(() => {}); });
   }).catch(() => {});
+}
+
+function renderToday() {
+  const today = L.startOfDay();
+  const stats = L.periodStats(state, today, today, null);
+  return `<header class="top"><div><h1>Сегодня</h1><div class="sub">${L.formatDisplay(today)}</div></div></header>
+    <div class="page">
+      <div class="today-stats">
+        <article class="card"><div class="meta">Проведено тренировок</div><div class="stat">${stats.totalWorkouts}</div></article>
+        <article class="card"><div class="meta">Пришло денег</div><div class="stat">${L.formatMoney(stats.totalIncome)}</div></article>
+      </div>
+      <div class="row-btns">
+        <button class="btn" data-action="quick-workout" ${state.clients.length ? "" : "disabled"}><span aria-hidden="true">🏋️</span> Тренировка</button>
+        <button class="btn secondary" data-action="quick-payment" ${state.clients.length ? "" : "disabled"}>Оплата</button>
+      </div>
+      <h3>Расписание дня</h3>
+      <article class="card calendar-placeholder">Здесь будет календарь</article>
+    </div>`;
 }
 
 loadState().then((saved) => {

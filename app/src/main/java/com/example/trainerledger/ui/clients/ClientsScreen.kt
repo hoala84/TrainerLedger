@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.Search
 import com.example.trainerledger.ui.components.ClientDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -27,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -54,6 +56,13 @@ fun ClientsScreen(
     val sort by viewModel.sortOrder.collectAsState()
     var showAdd by remember { mutableStateOf(false) }
     var showSort by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val filteredClients = remember(clients, query) {
+        val needle = query.trim().lowercase()
+        if (needle.isBlank()) clients else clients.filter {
+            it.client.displayName.lowercase().contains(needle)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -119,6 +128,16 @@ fun ClientsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text("Поиск по фамилии и имени") },
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                item {
                     Text(
                         text = if (sort == ClientSortOrder.BY_UPDATED) {
                             "Сортировка: по дате изменений"
@@ -129,7 +148,10 @@ fun ClientsScreen(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     )
                 }
-                items(clients, key = { it.client.id }) { row ->
+                if (filteredClients.isEmpty()) {
+                    item { Text("Клиенты не найдены", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)) }
+                }
+                items(filteredClients, key = { it.client.id }) { row ->
                     ClientCard(row = row, onClick = { onClientClick(row.client.id) })
                 }
             }

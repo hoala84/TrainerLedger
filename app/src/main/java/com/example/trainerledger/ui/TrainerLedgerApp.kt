@@ -4,9 +4,12 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -21,6 +24,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -33,8 +38,11 @@ import com.example.trainerledger.ui.backup.BackupViewModel
 import com.example.trainerledger.ui.client.ClientDetailScreen
 import com.example.trainerledger.ui.clients.ClientsScreen
 import com.example.trainerledger.ui.components.ConfirmDialog
+import com.example.trainerledger.ui.components.FEEDBACK_ENABLED
+import com.example.trainerledger.ui.components.FeedbackPlaceholder
 import com.example.trainerledger.ui.stats.StatsScreen
 import com.example.trainerledger.ui.stats.StatsViewModel
+import com.example.trainerledger.ui.today.TodayScreen
 import com.example.trainerledger.util.DateUtils
 import kotlinx.coroutines.launch
 
@@ -43,7 +51,7 @@ fun TrainerLedgerApp() {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
-    val showBottomBar = route == "clients" || route == "stats"
+    val showBottomBar = route == "today" || route == "clients" || route == "stats"
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val backupViewModel: BackupViewModel = viewModel()
@@ -84,6 +92,12 @@ fun TrainerLedgerApp() {
             if (showBottomBar) {
                 NavigationBar {
                     NavigationBarItem(
+                        selected = route == "today",
+                        onClick = { navController.navigateBottom("today") },
+                        icon = { Icon(Icons.Outlined.Today, contentDescription = null) },
+                        label = { Text("Сегодня") },
+                    )
+                    NavigationBarItem(
                         selected = route == "clients",
                         onClick = { navController.navigateBottom("clients") },
                         icon = { Icon(Icons.Outlined.People, contentDescription = null) },
@@ -99,11 +113,13 @@ fun TrainerLedgerApp() {
             }
         },
     ) { padding ->
+        Box(Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
-            startDestination = "clients",
+            startDestination = "today",
             modifier = Modifier.padding(padding),
         ) {
+            composable("today") { TodayScreen() }
             composable("clients") {
                 ClientsScreen(
                     onClientClick = { id -> navController.navigate("client/$id") },
@@ -131,6 +147,8 @@ fun TrainerLedgerApp() {
                     viewModel = statsViewModel,
                 )
             }
+        }
+        if (FEEDBACK_ENABLED) Box(Modifier.align(Alignment.BottomEnd).padding(16.dp)) { FeedbackPlaceholder() }
         }
     }
 
