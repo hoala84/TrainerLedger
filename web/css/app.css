@@ -166,7 +166,8 @@ button, .icon-btn, .chip {
 .stat { font-size: 28px; font-weight: 700; margin: 4px 0 0; }
 .search { margin-bottom: 12px; }
 .today-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.today-stats .card { cursor: default; }
+.today-stat { width: 100%; text-align: left; color: inherit; font: inherit; }
+.today-stat .meta, .today-stat .stat { display: block; }
 .calendar-placeholder { padding: 32px 16px; text-align: center; color: var(--muted); cursor: default; }
 .picker-list { margin: 10px 0; max-height: 45vh; overflow: auto; }
 .picker-client { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); background: white; text-align: left; padding: 12px 4px; }

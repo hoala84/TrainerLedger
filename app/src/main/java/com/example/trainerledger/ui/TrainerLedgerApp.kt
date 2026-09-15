@@ -119,7 +119,16 @@ fun TrainerLedgerApp() {
             startDestination = "today",
             modifier = Modifier.padding(padding),
         ) {
-            composable("today") { TodayScreen() }
+            composable("today") {
+                TodayScreen(
+                    onOpenTodayStats = {
+                        val today = DateUtils.startOfDay()
+                        statsViewModel.setClient(null)
+                        statsViewModel.setPeriod(today, today)
+                        navController.navigateBottom("stats")
+                    },
+                )
+            }
             composable("clients") {
                 ClientsScreen(
                     onClientClick = { id -> navController.navigate("client/$id") },

@@ -202,9 +202,10 @@ class LedgerRepository(private val db: AppDatabase) {
         val periodPayments = payments.getInPeriod(start, end).map { it.toDomain() }
         val periodWorkouts = workouts.getInPeriod(start, end).map { it.toDomain() }
         val scopedClients = if (clientId == null) allClients else allClients.filter { it.id == clientId }
-        val perClient = scopedClients.map { client ->
+        val perClient = scopedClients.mapNotNull { client ->
             val cPayments = periodPayments.filter { it.clientId == client.id }
             val cWorkouts = periodWorkouts.filter { it.clientId == client.id }
+            if (cPayments.isEmpty() && cWorkouts.isEmpty()) return@mapNotNull null
             ClientPeriodStats(
                 client = client,
                 completedWorkouts = cWorkouts.size,

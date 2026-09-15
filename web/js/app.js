@@ -85,6 +85,15 @@ root.addEventListener("click", async (e) => {
     ui.clientId = null;
     ui.menu = null;
     render();
+  } else if (action === "today-stats") {
+    const today = L.startOfDay();
+    ui.statsFrom = today;
+    ui.statsTo = today;
+    ui.statsClientId = null;
+    ui.tab = "stats";
+    ui.clientId = null;
+    ui.menu = null;
+    render();
   } else if (action === "open-client") {
     ui.tab = "client";
     ui.clientId = id;
@@ -564,8 +573,8 @@ function renderToday() {
   return `<header class="top"><div><h1>Сегодня</h1><div class="sub">${L.formatDisplay(today)}</div></div></header>
     <div class="page">
       <div class="today-stats">
-        <article class="card"><div class="meta">Проведено тренировок</div><div class="stat">${stats.totalWorkouts}</div></article>
-        <article class="card"><div class="meta">Пришло денег</div><div class="stat">${L.formatMoney(stats.totalIncome)}</div></article>
+        <button class="card today-stat" data-action="today-stats"><span class="meta">Проведено тренировок</span><span class="stat">${stats.totalWorkouts}</span></button>
+        <button class="card today-stat" data-action="today-stats"><span class="meta">Пришло денег</span><span class="stat">${L.formatMoney(stats.totalIncome)}</span></button>
       </div>
       <div class="row-btns">
         <button class="btn" data-action="quick-workout" ${state.clients.length ? "" : "disabled"}><span aria-hidden="true">🏋️</span> Тренировка</button>
