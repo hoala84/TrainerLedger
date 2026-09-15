@@ -254,7 +254,11 @@ export function periodStats(state, from, to, clientId) {
   const scoped = clientId == null ? clients : clients.filter((c) => c.id === clientId);
   const periodPayments = state.payments.filter((p) => p.date >= start && p.date <= end);
   const periodWorkouts = state.workouts.filter((w) => w.date >= start && w.date <= end);
-  const perClient = scoped.map((client) => {
+  const activeClients = scoped.filter((client) =>
+    periodPayments.some((payment) => payment.clientId === client.id) ||
+    periodWorkouts.some((workout) => workout.clientId === client.id),
+  );
+  const perClient = activeClients.map((client) => {
     const cPay = periodPayments.filter((p) => p.clientId === client.id);
     const cWork = periodWorkouts.filter((w) => w.clientId === client.id);
     return {

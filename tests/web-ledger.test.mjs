@@ -25,6 +25,15 @@ test("partial settlement, oldest first, balances and statistics", () => {
   assert.equal(L.debtOf(s.workouts, 1), 2);
   assert.equal(L.remainingOf(s.payments, s.workouts, 1), 0);
 });
+test("period statistics include only clients with payments or workouts", () => {
+  const s = fixture();
+  const inactiveId = L.addClient(s, "Сидоров", "Семён");
+  const zeroPaymentId = L.addClient(s, "Петров", "Пётр");
+  L.addPayment(s, zeroPaymentId, day, 0, 0);
+  const stats = L.periodStats(s, day, day, null);
+  assert.deepEqual(stats.perClient.map((row) => row.client.id), [1, zeroPaymentId]);
+  assert.equal(stats.perClient.some((row) => row.client.id === inactiveId), false);
+});
 test("deleting settled workout returns credit; changing type releases settlement", () => {
   const s = fixture();
   L.addPayment(s, 1, day, 2000, 2, 2);

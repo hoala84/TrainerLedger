@@ -1,5 +1,5 @@
 // Pages replaces this suffix with the commit SHA for every deployment.
-const CACHE = "trainer-ledger-v6";
+const CACHE = "trainer-ledger-v7";
 const ASSETS = [
   "./",
   "./index.html",
