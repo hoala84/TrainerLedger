@@ -6,12 +6,19 @@ const root = document.getElementById("app");
 // Заглушка готова на всех экранах, но не попадает в интерфейс до подключения отправки отзывов.
 const FEEDBACK_ENABLED = false;
 const ui = {
-  tab: "today",
+  tab: "clients",
   clientId: null,
   sort: L.SORT.BY_UPDATED,
+  clientSort: "name",
+  clientSortAsc: true,
+  clientSortMenu: null,
+  clientRemainingFrom: 0,
+  clientRemainingTo: 10,
   statsFrom: L.startOfMonth(),
   statsTo: L.startOfDay(),
   statsClientId: null,
+  statsSort: "name",
+  statsSortAsc: true,
   modal: null,
   menu: null,
   toast: "",
@@ -186,6 +193,27 @@ root.addEventListener("click", async (e) => {
     });
     downloadBlob(bytes, `trener-${L.formatFileDate(ui.statsFrom)}-${L.formatFileDate(ui.statsTo)}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     toast("Excel скачан");
+  } else if (action === "client-alpha-menu") {
+    ui.clientSortMenu = ui.clientSortMenu === "alpha" ? null : "alpha";
+    render();
+  } else if (action === "client-workout-sort") {
+    ui.clientSort = "workouts";
+    ui.clientSortAsc = true;
+    ui.clientSortMenu = null;
+    render();
+  } else if (action === "client-alpha-choice") {
+    ui.clientSort = "name";
+    ui.clientSortAsc = btn.dataset.direction === "asc";
+    ui.clientSortMenu = null;
+    render();
+  } else if (action === "stats-sort") {
+    const field = btn.dataset.field;
+    if (ui.statsSort === field) ui.statsSortAsc = !ui.statsSortAsc;
+    else {
+      ui.statsSort = field;
+      ui.statsSortAsc = true;
+    }
+    render();
   } else if (action === "close-modal") {
     closeModal();
   }
@@ -217,6 +245,9 @@ root.addEventListener("change", (e) => {
   }
   if (e.target.id === "stats-client") {
     ui.statsClientId = e.target.value || null;
+    render();
+  }
+  if (e.target.id === "client-remaining-from" || e.target.id === "client-remaining-to") {
     render();
   }
 });
@@ -264,32 +295,43 @@ root.addEventListener("submit", async (e) => {
 });
 
 root.addEventListener("input", (e) => {
-  if (e.target.id !== "client-search") return;
-  ui.clientQuery = e.target.value;
-  render();
-  const input = document.getElementById("client-search");
-  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  if (e.target.id === "client-search") {
+    ui.clientQuery = e.target.value;
+    render();
+    const input = document.getElementById("client-search");
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  } else if (e.target.id === "client-remaining-from") {
+    ui.clientRemainingFrom = Math.min(Number(e.target.value), ui.clientRemainingTo);
+    e.target.value = ui.clientRemainingFrom;
+    e.target.closest("label").querySelector("strong").textContent = ui.clientRemainingFrom;
+  } else if (e.target.id === "client-remaining-to") {
+    ui.clientRemainingTo = Math.max(Number(e.target.value), ui.clientRemainingFrom);
+    e.target.value = ui.clientRemainingTo;
+    e.target.closest("label").querySelector("strong").textContent = ui.clientRemainingTo;
+  }
 });
 
 function renderList() {
   const query = ui.clientQuery.trim().toLocaleLowerCase("ru");
   const rows = L.sortClients(state.clients, state.payments, state.workouts, ui.sort)
-    .filter((row) => !query || L.displayName(row.client).toLocaleLowerCase("ru").includes(query));
+    .filter((row) => !query || L.displayName(row.client).toLocaleLowerCase("ru").includes(query))
+    .filter((row) => ui.clientSort !== "workouts" ||
+      (row.remaining >= ui.clientRemainingFrom && row.remaining <= ui.clientRemainingTo))
+    .sort((a, b) => {
+      let result;
+      if (ui.clientSort === "workouts") result = a.remaining - b.remaining;
+      else result = L.displayName(a.client).localeCompare(L.displayName(b.client), "ru");
+      return ui.clientSortAsc ? result : -result;
+    });
   return `
     <header class="top">
       <div>
         <h1>Клиенты</h1>
-        <div class="sub">${ui.sort === L.SORT.ALPHABETICAL ? "Сортировка: фамилия, имя" : "Сортировка: по дате изменений"}</div>
       </div>
       <div class="actions">
-        <button class="icon-btn" data-action="sort-menu" title="Сортировка">⇅</button>
         <button class="icon-btn" data-action="more-menu" title="Ещё">⋯</button>
       </div>
     </header>
-    ${ui.menu === "sort" ? `<div class="menu">
-      <button data-action="sort" data-sort="${L.SORT.BY_UPDATED}">По дате изменений</button>
-      <button data-action="sort" data-sort="${L.SORT.ALPHABETICAL}">По алфавиту</button>
-    </div>` : ""}
     ${ui.menu === "more" ? `<div class="menu">
       <button data-action="export">Сохранить копию JSON</button>
       <button data-action="import">Восстановить из файла</button>
@@ -297,7 +339,27 @@ function renderList() {
     </div>` : ""}
     <div class="page">
       ${ui.iosHint ? `<div class="hint">На iPhone: «Поделиться» → «На экран Домой» — журнал будет как приложение и без интернета. <button class="linkish" data-action="hide-hint">Скрыть</button></div>` : ""}
+      <div class="row-btns">
+        <button class="btn" data-action="quick-payment" ${state.clients.length ? "" : "disabled"}>Добавить оплату</button>
+        <button class="btn secondary" data-action="quick-workout" ${state.clients.length ? "" : "disabled"}>Добавить тренировку</button>
+      </div>
       <div class="search"><input id="client-search" type="search" placeholder="Поиск по фамилии и имени" value="${esc(ui.clientQuery)}"></div>
+      <div class="sort-buttons">
+        <button class="chip ${ui.clientSort === "name" ? "active" : ""}" data-action="client-alpha-menu">Алфавит: ${ui.clientSortAsc ? "А–Я" : "Я–А"}</button>
+        <button class="chip ${ui.clientSort === "workouts" ? "active" : ""}" data-action="client-workout-sort">Тренировки: ${ui.clientRemainingFrom}–${ui.clientRemainingTo}</button>
+      </div>
+      ${ui.clientSortMenu === "alpha" ? `<div class="sort-choice-menu">
+        <button data-action="client-alpha-choice" data-direction="asc">От А до Я</button>
+        <button data-action="client-alpha-choice" data-direction="desc">От Я до А</button>
+      </div>` : ""}
+      ${ui.clientSort === "workouts" ? `<div class="remaining-range" aria-label="Диапазон оставшихся тренировок">
+        <label>От <strong>${ui.clientRemainingFrom}</strong>
+          <input id="client-remaining-from" type="range" min="0" max="10" step="1" value="${ui.clientRemainingFrom}">
+        </label>
+        <label>До <strong>${ui.clientRemainingTo}</strong>
+          <input id="client-remaining-to" type="range" min="0" max="10" step="1" value="${ui.clientRemainingTo}">
+        </label>
+      </div>` : ""}
       ${rows.length === 0 ? `<div class="empty">${state.clients.length ? "Клиенты не найдены." : "Пока нет клиентов.<br>Добавьте первого кнопкой «+» или загрузите пример."}</div>` : rows.map((row) => `
         <article class="card" data-action="open-client" data-id="${row.client.id}">
           <div class="card-row">
@@ -310,7 +372,7 @@ function renderList() {
         </article>
       `).join("")}
     </div>
-    <button class="fab" data-action="add-client">+</button>
+    <button class="fab" data-action="add-client">＋ Добавить клиента</button>
   `;
 }
 
@@ -382,6 +444,13 @@ function renderClient() {
 function renderStats() {
   const filterId = ui.statsClientId ? Number(ui.statsClientId) : null;
   const stats = L.periodStats(state, ui.statsFrom, ui.statsTo, filterId);
+  const sortedRows = [...stats.perClient].sort((a, b) => {
+    let result;
+    if (ui.statsSort === "workouts") result = a.completedWorkouts - b.completedWorkouts;
+    else if (ui.statsSort === "payments") result = a.income - b.income;
+    else result = L.displayName(a.client).localeCompare(L.displayName(b.client), "ru");
+    return ui.statsSortAsc ? result : -result;
+  });
   return `
     <header class="top">
       <div><h1>Статистика</h1></div>
@@ -400,11 +469,16 @@ function renderStats() {
           </select>
         </label>
       </div>
+      ${filterId == null ? `<div class="sort-buttons">
+        ${sortButton("stats-sort", "name", "Алфавит", ui.statsSort, ui.statsSortAsc)}
+        ${sortButton("stats-sort", "workouts", "Тренировки", ui.statsSort, ui.statsSortAsc)}
+        ${sortButton("stats-sort", "payments", "Оплаты", ui.statsSort, ui.statsSortAsc)}
+      </div>` : ""}
       <article class="card"><div class="meta">Проведено тренировок</div><div class="stat">${stats.totalWorkouts}</div></article>
       <article class="card"><div class="meta">Из них подарочных</div><div class="stat">${stats.giftWorkouts}</div></article>
       <article class="card"><div class="meta">Из них в долг</div><div class="stat">${stats.debtWorkouts}</div></article>
       <article class="card"><div class="meta">Приход денег</div><div class="stat">${L.formatMoney(stats.totalIncome)}</div></article>
-      ${filterId == null ? stats.perClient.map((row) => `
+      ${filterId == null ? sortedRows.map((row) => `
         <article class="card">
           <h3>${esc(L.displayName(row.client))}</h3>
           <div class="meta">Тренировки: ${row.completedWorkouts} (подарки: ${row.giftWorkouts}, долг: ${row.debtWorkouts})</div>
@@ -501,11 +575,10 @@ function renderModal() {
 
 function render() {
   const showNav = ui.tab !== "client";
-  const body = ui.tab === "today" ? renderToday() : ui.tab === "stats" ? renderStats() : ui.tab === "client" ? renderClient() : renderList();
+  const body = ui.tab === "stats" ? renderStats() : ui.tab === "client" ? renderClient() : renderList();
   root.innerHTML = `
     ${body}
     ${showNav ? `<nav class="nav">
-      <button data-action="tab" data-tab="today" class="${ui.tab === "today" ? "active" : ""}">Сегодня</button>
       <button data-action="tab" data-tab="clients" class="${ui.tab === "clients" ? "active" : ""}">Клиенты</button>
       <button data-action="tab" data-tab="stats" class="${ui.tab === "stats" ? "active" : ""}">Статистика</button>
     </nav>` : ""}
@@ -547,6 +620,12 @@ function paymentCountHint(count, debt = 0) {
     return "Оплата за одну тренировку: занятие добавится автоматически на дату оплаты.";
   }
   return "Указанное число занятий начислится в пакет (остаток). Новая тренировка сама не появится.";
+}
+
+function sortButton(action, field, label, selectedField, ascending) {
+  const selected = field === selectedField;
+  const arrow = selected ? (ascending ? " ↑" : " ↓") : "";
+  return `<button class="chip ${selected ? "active" : ""}" data-action="${action}" data-field="${field}">${label}${arrow}</button>`;
 }
 
 function esc(s) {

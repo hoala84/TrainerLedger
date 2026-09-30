@@ -1,6 +1,7 @@
 package com.example.trainerledger.ui.stats
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.GridOn
@@ -36,6 +38,8 @@ import com.example.trainerledger.ui.components.DateRangePickerDialog
 import com.example.trainerledger.util.DateUtils
 import com.example.trainerledger.util.MoneyUtils
 
+private enum class StatsSortField { NAME, WORKOUTS, PAYMENTS }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
@@ -47,8 +51,26 @@ fun StatsScreen(
     val clients by viewModel.clients.collectAsState()
     var showRange by remember { mutableStateOf(false) }
     var showClients by remember { mutableStateOf(false) }
+    var statsSort by remember { mutableStateOf(StatsSortField.NAME) }
+    var ascending by remember { mutableStateOf(true) }
 
     val selectedName = clients.firstOrNull { it.id == filter.clientId }?.displayName ?: "Все клиенты"
+    val sortedRows = remember(stats?.perClient, statsSort, ascending) {
+        val rows = stats?.perClient.orEmpty()
+        val comparator = when (statsSort) {
+            StatsSortField.NAME -> compareBy<com.example.trainerledger.domain.model.ClientPeriodStats> { it.client.displayName.lowercase() }
+            StatsSortField.WORKOUTS -> compareBy { it.completedWorkouts }
+            StatsSortField.PAYMENTS -> compareBy { it.income }
+        }
+        if (ascending) rows.sortedWith(comparator) else rows.sortedWith(comparator.reversed())
+    }
+    val chooseSort: (StatsSortField) -> Unit = { selectedSort ->
+        if (statsSort == selectedSort) ascending = !ascending
+        else {
+            statsSort = selectedSort
+            ascending = true
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -119,9 +141,21 @@ fun StatsScreen(
             }
             if (filter.clientId == null) {
                 item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        StatsSortChip("Алфавит", statsSort == StatsSortField.NAME, ascending) { chooseSort(StatsSortField.NAME) }
+                        StatsSortChip("Тренировки", statsSort == StatsSortField.WORKOUTS, ascending) { chooseSort(StatsSortField.WORKOUTS) }
+                        StatsSortChip("Оплаты", statsSort == StatsSortField.PAYMENTS, ascending) { chooseSort(StatsSortField.PAYMENTS) }
+                    }
+                }
+            }
+            if (filter.clientId == null) {
+                item {
                     Text("По клиентам", style = MaterialTheme.typography.titleMedium)
                 }
-                items(stats?.perClient.orEmpty(), key = { it.client.id }) { row ->
+                items(sortedRows, key = { it.client.id }) { row ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(row.client.displayName, style = MaterialTheme.typography.titleMedium)
@@ -150,6 +184,15 @@ fun StatsScreen(
             },
         )
     }
+}
+
+@Composable
+private fun StatsSortChip(label: String, selected: Boolean, ascending: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label + if (selected) if (ascending) " ↑" else " ↓" else "") },
+    )
 }
 
 @Composable
