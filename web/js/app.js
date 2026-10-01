@@ -9,8 +9,8 @@ const ui = {
   tab: "clients",
   clientId: null,
   sort: L.SORT.BY_UPDATED,
-  clientSort: "name",
-  clientSortAsc: true,
+  clientSort: "updated",
+  clientSortAsc: false,
   clientSortMenu: null,
   clientRemainingFrom: 0,
   clientRemainingTo: 10,
@@ -201,6 +201,14 @@ root.addEventListener("click", async (e) => {
     ui.clientSortAsc = true;
     ui.clientSortMenu = null;
     render();
+  } else if (action === "client-updated-sort") {
+    if (ui.clientSort === "updated") ui.clientSortAsc = !ui.clientSortAsc;
+    else {
+      ui.clientSort = "updated";
+      ui.clientSortAsc = false;
+    }
+    ui.clientSortMenu = null;
+    render();
   } else if (action === "client-alpha-choice") {
     ui.clientSort = "name";
     ui.clientSortAsc = btn.dataset.direction === "asc";
@@ -320,7 +328,13 @@ function renderList() {
     .sort((a, b) => {
       let result;
       if (ui.clientSort === "workouts") result = a.remaining - b.remaining;
+      else if (ui.clientSort === "updated") {
+        result = (Number(a.client.updatedAt) || 0) - (Number(b.client.updatedAt) || 0);
+        if (result !== 0) return ui.clientSortAsc ? result : -result;
+        return L.displayName(a.client).localeCompare(L.displayName(b.client), "ru");
+      }
       else result = L.displayName(a.client).localeCompare(L.displayName(b.client), "ru");
+      if (result === 0) result = L.displayName(a.client).localeCompare(L.displayName(b.client), "ru");
       return ui.clientSortAsc ? result : -result;
     });
   return `
@@ -345,7 +359,8 @@ function renderList() {
       </div>
       <div class="search"><input id="client-search" type="search" placeholder="Поиск по фамилии и имени" value="${esc(ui.clientQuery)}"></div>
       <div class="sort-buttons">
-        <button class="chip ${ui.clientSort === "name" ? "active" : ""}" data-action="client-alpha-menu">Алфавит: ${ui.clientSortAsc ? "А–Я" : "Я–А"}</button>
+        <button class="chip ${ui.clientSort === "updated" ? "active" : ""}" data-action="client-updated-sort">По дате изменений ${ui.clientSort === "updated" ? (ui.clientSortAsc ? "↑" : "↓") : ""}</button>
+        <button class="chip ${ui.clientSort === "name" ? "active" : ""}" data-action="client-alpha-menu">Алфавит: ${ui.clientSort === "name" && !ui.clientSortAsc ? "Я–А" : "А–Я"}</button>
         <button class="chip ${ui.clientSort === "workouts" ? "active" : ""}" data-action="client-workout-sort">Тренировки: ${ui.clientRemainingFrom}–${ui.clientRemainingTo}</button>
       </div>
       ${ui.clientSortMenu === "alpha" ? `<div class="sort-choice-menu">
@@ -469,15 +484,15 @@ function renderStats() {
           </select>
         </label>
       </div>
+      <article class="card"><div class="meta">Проведено тренировок</div><div class="stat">${stats.totalWorkouts}</div></article>
+      <article class="card"><div class="meta">Из них подарочных</div><div class="stat">${stats.giftWorkouts}</div></article>
+      <article class="card"><div class="meta">Из них в долг</div><div class="stat">${stats.debtWorkouts}</div></article>
+      <article class="card"><div class="meta">Приход денег</div><div class="stat">${L.formatMoney(stats.totalIncome)}</div></article>
       ${filterId == null ? `<div class="sort-buttons">
         ${sortButton("stats-sort", "name", "Алфавит", ui.statsSort, ui.statsSortAsc)}
         ${sortButton("stats-sort", "workouts", "Тренировки", ui.statsSort, ui.statsSortAsc)}
         ${sortButton("stats-sort", "payments", "Оплаты", ui.statsSort, ui.statsSortAsc)}
       </div>` : ""}
-      <article class="card"><div class="meta">Проведено тренировок</div><div class="stat">${stats.totalWorkouts}</div></article>
-      <article class="card"><div class="meta">Из них подарочных</div><div class="stat">${stats.giftWorkouts}</div></article>
-      <article class="card"><div class="meta">Из них в долг</div><div class="stat">${stats.debtWorkouts}</div></article>
-      <article class="card"><div class="meta">Приход денег</div><div class="stat">${L.formatMoney(stats.totalIncome)}</div></article>
       ${filterId == null ? sortedRows.map((row) => `
         <article class="card">
           <h3>${esc(L.displayName(row.client))}</h3>
