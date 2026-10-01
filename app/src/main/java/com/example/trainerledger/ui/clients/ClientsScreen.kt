@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private enum class QuickAction { PAYMENT, WORKOUT }
-private enum class ClientListSort { NAME, WORKOUTS }
+private enum class ClientListSort { UPDATED, NAME, WORKOUTS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,8 +73,8 @@ fun ClientsScreen(
     val scope = rememberCoroutineScope()
     var showAdd by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
-    var clientSort by remember { mutableStateOf(ClientListSort.NAME) }
-    var ascending by remember { mutableStateOf(true) }
+    var clientSort by remember { mutableStateOf(ClientListSort.UPDATED) }
+    var ascending by remember { mutableStateOf(false) }
     var showAlphabetSort by remember { mutableStateOf(false) }
     var remainingRange by remember { mutableStateOf(0f..10f) }
     var choosing by remember { mutableStateOf<QuickAction?>(null) }
@@ -90,6 +90,7 @@ fun ClientsScreen(
                 (clientSort != ClientListSort.WORKOUTS || it.remainingWorkouts in remainingFrom..remainingTo)
         }
         val comparator = when (clientSort) {
+            ClientListSort.UPDATED -> compareBy<ClientRow> { it.client.updatedAt }
             ClientListSort.NAME -> compareBy<ClientRow> { it.client.displayName.lowercase() }
             ClientListSort.WORKOUTS -> compareBy { it.remainingWorkouts }
         }
@@ -171,11 +172,32 @@ fun ClientsScreen(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        FilterChip(
+                            selected = clientSort == ClientListSort.UPDATED,
+                            onClick = {
+                                ascending = if (clientSort == ClientListSort.UPDATED) !ascending else false
+                                clientSort = ClientListSort.UPDATED
+                                showAlphabetSort = false
+                            },
+                            label = {
+                                Text(
+                                    "По дате изменений" +
+                                        if (clientSort == ClientListSort.UPDATED) {
+                                            if (ascending) " ↑" else " ↓"
+                                        } else "",
+                                )
+                            },
+                        )
                         Box {
                             FilterChip(
                                 selected = clientSort == ClientListSort.NAME,
                                 onClick = { showAlphabetSort = true },
-                                label = { Text("Алфавит: " + if (ascending) "А–Я" else "Я–А") },
+                                label = {
+                                    Text(
+                                        "Алфавит: " +
+                                            if (clientSort == ClientListSort.NAME && !ascending) "Я–А" else "А–Я",
+                                    )
+                                },
                             )
                             DropdownMenu(
                                 expanded = showAlphabetSort,
